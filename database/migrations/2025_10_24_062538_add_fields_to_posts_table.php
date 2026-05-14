@@ -9,7 +9,7 @@ use Illuminate\Support\Str;
 return new class extends Migration {
     public function up(): void
     {
-        // a) Thêm cột (đều để nullable để tránh lỗi SQLite)
+        // a) Thêm cột (đều để nullable để tránh lỗi)
         Schema::table('posts', function (Blueprint $table) {
             if (!Schema::hasColumn('posts','slug'))          { $table->string('slug')->nullable()->after('id'); }
             if (!Schema::hasColumn('posts','title'))         { $table->string('title')->nullable()->after('slug'); }
@@ -37,13 +37,14 @@ return new class extends Migration {
             ]);
         }
 
-        // c) Tạo unique index cho slug (sau khi backfill)
-        //   Lưu ý: slug đang nullable, SQLite vẫn cho unique trên nhiều NULL.
+        // c) Tạo unique index cho slug (Chuẩn Laravel 11)
         Schema::table('posts', function (Blueprint $table) {
-            $sm = Schema::getConnection()->getDoctrineSchemaManager();
-            $indexes = collect($sm->listTableIndexes('posts'))->keys()->map('strtolower');
-            if (!$indexes->contains('posts_slug_unique')) {
-                $table->unique('slug');
+            $indexes = Schema::getIndexes('posts');
+            $indexNames = array_column($indexes, 'name');
+            
+            // Nếu chưa có unique index cho slug thì mới thêm
+            if (!in_array('posts_slug_unique', $indexNames)) {
+                $table->unique('slug', 'posts_slug_unique');
             }
         });
     }
@@ -52,7 +53,15 @@ return new class extends Migration {
     {
         // rollback nhẹ (có thể chỉ drop index và một vài cột chính)
         Schema::table('posts', function (Blueprint $table) {
-            if (Schema::hasColumn('posts','slug'))          { $table->dropUnique('posts_slug_unique'); $table->dropColumn('slug'); }
+            $indexes = Schema::getIndexes('posts');
+            $indexNames = array_column($indexes, 'name');
+
+            // Bắt buộc phải xóa Unique Constraint trước khi xóa Cột trong PostgreSQL
+            if (in_array('posts_slug_unique', $indexNames)) {
+                $table->dropUnique('posts_slug_unique');
+            }
+
+            if (Schema::hasColumn('posts','slug'))          { $table->dropColumn('slug'); }
             if (Schema::hasColumn('posts','title'))         { $table->dropColumn('title'); }
             if (Schema::hasColumn('posts','thumbnail'))     { $table->dropColumn('thumbnail'); }
             if (Schema::hasColumn('posts','excerpt'))       { $table->dropColumn('excerpt'); }
@@ -64,5 +73,3 @@ return new class extends Migration {
         });
     }
 };
-
-
